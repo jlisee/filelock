@@ -115,12 +115,27 @@ class SingleInstance:
             sys.exit(-1)
 
 
-def f(name):
+def f(name, func=lambda:1+1):
     tmp = logger.level
     logger.setLevel(logging.CRITICAL)  # we do not want to see the warning
     me2 = SingleInstance(flavor_id=name)
     logger.setLevel(tmp)
+    func()
     pass
+
+
+def crash():
+    """
+    Crash the Python interpreter so we test what happens in cashes.
+    """
+    import ctypes
+    i = ctypes.c_char('a')
+    j = ctypes.pointer(i)
+    c = 0
+    while True:
+        j[c] = 'a'
+        c += 1
+    j
 
 
 class testSingleton(unittest.TestCase):
@@ -154,6 +169,29 @@ class testSingleton(unittest.TestCase):
         # the called function should fail because we already have another
         # instance running
         assert p.exitcode != 0, "%s != 0 (3rd execution)" % p.exitcode
+
+    def test_crash(self):
+        """
+        Make sure that when the program, the lock file doesn't stick properly.
+        """
+        p = Process(target=f, args=("test-crash",crash))
+        p.start()
+        p.join()
+
+        # Make sure the test fails
+        self.assertNotEquals(0, p.exitcode)
+
+        # Make sure the lock file still exists, to prove we didn't clean up
+        # properly
+        lockpath = SingleInstance.lockfile_path('test-crash')
+        self.assertTrue(os.path.exists(lockpath))
+
+        # Make sure we can acquire the lock after the program opens
+        p = Process(target=f, args=("test-crash",))
+        p.start()
+        p.join()
+
+        self.assertEquals(0, p.exitcode)
 
 
 logger = logging.getLogger("tendo.singleton")
