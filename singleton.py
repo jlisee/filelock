@@ -15,7 +15,88 @@ import signal
 from multiprocessing import Process
 
 
-class SingleInstance:
+class Lock(object):
+    """
+    A cross platform system wide file based lock object.
+    """
+
+    def __init__(self, path):
+        self.lockfile = path
+        self.initialized = False
+        self.fobj = None
+
+    def acquire(self, trylock=False):
+        """
+        Returns the resulting file locking object, None if trylock=False and the
+        lock is not acquired.
+        """
+        self.initialized = True
+        self.fobj = self.acquire_lockfile(self.lockfile, block=not trylock)
+        return self.fobj
+
+    def release(self):
+        """
+        This may throw if their is an issue.
+        """
+        import sys
+        import os
+        if not self.initialized or self.fobj is None:
+            return
+
+        if sys.platform == 'win32':
+            os.close(self.fobj)
+            os.unlink(self.lockfile)
+        else:
+            import fcntl
+            fcntl.lockf(self.fobj, fcntl.LOCK_UN)
+            # os.close(self.fobj)
+            if os.path.isfile(self.lockfile):
+                os.unlink(self.lockfile)
+
+        self.initialized = False
+        self.fobj = None
+
+    def __del__(self):
+        if not self.initialized:
+            return
+
+        self.release()
+
+    @staticmethod
+    def acquire_lockfile(lockpath, block=True):
+        """
+        If successful returns the lock file object, otherwise None.
+        """
+        fobj = None
+
+        if sys.platform == 'win32':
+            try:
+                # file already exists, we try to remove (in case previous
+                # execution was interrupted)
+                if os.path.exists(lockpath):
+                    os.unlink(lockpath)
+                fobj = os.open(lockpath, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+            except OSError:
+                type, e, tb = sys.exc_info()
+                if e.errno == 13:
+                    return None
+                print(e.errno)
+                raise
+        else:  # non Windows
+            import fcntl
+            fobj = open(lockpath, 'w')
+            try:
+                flags = fcntl.LOCK_EX
+                if not block:
+                    flags |= fcntl.LOCK_NB
+                fcntl.lockf(fobj, flags)
+            except IOError:
+                return None
+
+        return fobj
+
+
+class SingleInstance(object):
 
     """
     If you want to prevent your script from running in parallel just instantiate
@@ -34,17 +115,21 @@ class SingleInstance:
     """
 
     def __init__(self, flavor_id=""):
-        import sys
-        self.initialized = False
         self.lockfile = self.lockfile_path(flavor_id)
+        self.lock = Lock(self.lockfile)
+        self.fobj = None
 
         logger.debug("SingleInstance lockfile: " + self.lockfile)
 
-        self.fobj = self.acquire_lockfile(self.lockfile)
+        self.fobj = self.lock.acquire(trylock=True)
 
         if self.fobj is None:
             logger.error("Another instance is already running, quitting.")
             sys.exit(-1)
+        else:
+            # Make sure our pid is in the file
+            self.fobj.write('%d\n' % os.getpid())
+            self.fobj.flush()
 
         self.initialized = True
 
@@ -84,57 +169,10 @@ class SingleInstance:
 
         return pid
 
-    @staticmethod
-    def acquire_lockfile(lockpath):
-        """
-        If successful returns the lock file object, otherwise None.
-        """
-        fobj = None
-
-        if sys.platform == 'win32':
-            try:
-                # file already exists, we try to remove (in case previous
-                # execution was interrupted)
-                if os.path.exists(lockpath):
-                    os.unlink(lockpath)
-                fobj = os.open(lockpath, os.O_CREAT | os.O_EXCL | os.O_RDWR)
-            except OSError:
-                type, e, tb = sys.exc_info()
-                if e.errno == 13:
-                    return None
-                print(e.errno)
-                raise
-        else:  # non Windows
-            import fcntl
-            fobj = open(lockpath, 'w')
-            try:
-                fcntl.lockf(fobj, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except IOError:
-                return None
-
-        # Make sure our pid is in the file
-        if fobj:
-            fobj.write('%d\n' % os.getpid())
-            fobj.flush()
-
-        return fobj
 
     def __del__(self):
-        import sys
-        import os
-        if not self.initialized:
-            return
         try:
-            if sys.platform == 'win32':
-                if hasattr(self, 'fobj'):
-                    os.close(self.fobj)
-                    os.unlink(self.lockfile)
-            else:
-                import fcntl
-                fcntl.lockf(self.fobj, fcntl.LOCK_UN)
-                # os.close(self.fobj)
-                if os.path.isfile(self.lockfile):
-                    os.unlink(self.lockfile)
+            self.lock.release()
         except Exception as e:
             if logger:
                 logger.warning(e)
@@ -275,7 +313,7 @@ class testSingleton(unittest.TestCase):
         self.assertEquals(p.pid, pid)
 
 
-logger = logging.getLogger("tendo.singleton")
+logger = logging.getLogger("lockfile.singleton")
 logger.addHandler(logging.StreamHandler())
 
 if __name__ == "__main__":
