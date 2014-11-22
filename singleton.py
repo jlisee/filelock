@@ -152,8 +152,16 @@ class testSingleton(unittest.TestCase):
 
     def test_1(self):
         me = SingleInstance(flavor_id="test-1")
-        del me  # now the lock should be removed
-        assert True
+
+        # Make sure the lock is present
+        lockpath = SingleInstance.lockfile_path('test-1')
+        self.assertTrue(os.path.exists(lockpath))
+
+        # now the lock should be removed
+        del me
+
+        # Make sure the file is not their
+        self.assertFalse(os.path.exists(lockpath))
 
     def test_2(self):
         p = Process(target=f, args=("test-2",))
