@@ -115,13 +115,13 @@ def crash():
     Crash the Python interpreter so we test what happens in cashes.
     """
     import ctypes
-    i = ctypes.c_char('a')
-    j = ctypes.pointer(i)
-    c = 0
-    while True:
-        j[c] = 'a'
-        c += 1
-    j
+
+    # Create a pointer with value of 42
+    INTP = ctypes.POINTER(ctypes.c_int)
+    ptr = INTP.from_address(42)
+
+    # Now try to de-reference it, causing a segfault
+    print ptr.contents
 
 
 def loop_until_signal():
