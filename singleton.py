@@ -6,10 +6,12 @@
 
 import sys
 import os
+import time
 import errno
 import tempfile
 import unittest
 import logging
+import signal
 from multiprocessing import Process
 
 
@@ -47,19 +49,40 @@ class SingleInstance:
         self.initialized = True
 
     @staticmethod
-    def lockfile_path(flavor_id=""):
+    def lockfile_path(flavor_id="", program_path=None):
         """
         Generates a lock file path based on the location of the executable,
         and flavor_id.
         """
 
-        program_dir, _ = os.path.splitext(os.path.abspath(sys.argv[0]))
-        basename = program_dir. \
+        if program_path is None:
+            program_path = sys.argv[0]
+
+        program_noext, _ = os.path.splitext(os.path.abspath(program_path))
+        basename = program_noext. \
             replace("/", "-"). \
             replace(":", ""). \
             replace("\\", "-") + '-%s' % flavor_id + '.lock'
 
         return os.path.normpath(tempfile.gettempdir() + '/' + basename)
+
+    @staticmethod
+    def get_pid(program_path, flavor_id=""):
+        """
+        Gets the pid of the given program if it's running, None otherwise.
+        """
+
+        lockpath = SingleInstance.lockfile_path(flavor_id=flavor_id,
+                                                program_path=program_path)
+
+        pid = None
+
+        if os.path.exists(lockpath):
+            c = open(lockpath).read()
+            if c.endswith('\n'):
+                pid = int(c)
+
+        return pid
 
     @staticmethod
     def acquire_lockfile(lockpath):
@@ -89,6 +112,11 @@ class SingleInstance:
             except IOError:
                 return None
 
+        # Make sure our pid is in the file
+        if fobj:
+            fobj.write('%d\n' % os.getpid())
+            fobj.flush()
+
         return fobj
 
     def __del__(self):
@@ -114,7 +142,6 @@ class SingleInstance:
                 print("Unloggable error: %s" % e)
             sys.exit(-1)
 
-
 def f(name, func=lambda:1+1):
     tmp = logger.level
     logger.setLevel(logging.CRITICAL)  # we do not want to see the warning
@@ -136,6 +163,30 @@ def crash():
         j[c] = 'a'
         c += 1
     j
+
+
+def loop_until_signal():
+    """
+    Runs until a SIGTERM is received
+    """
+
+    global run_loop
+    run_loop = True
+
+    def stop_loop(signum, frame):
+        global run_loop
+        run_loop = False
+
+    signal.signal(signal.SIGTERM, stop_loop)
+
+    start = time.time()
+
+    while True:
+        time.sleep(0.1)
+
+        duration = time.time() - start
+        if not run_loop or duration > 5:
+            break
 
 
 class testSingleton(unittest.TestCase):
@@ -192,6 +243,36 @@ class testSingleton(unittest.TestCase):
         p.join()
 
         self.assertEquals(0, p.exitcode)
+
+    def test_get_pid(self):
+        # Start up the process
+        p = Process(target=f, args=("test-pid",loop_until_signal))
+        p.start()
+
+        # Try and find our PID
+        start = time.time()
+
+        while True:
+            # Try and read the PID
+            pid = SingleInstance.get_pid(sys.argv[0], 'test-pid')
+
+            if pid:
+                break
+
+            # Make sure we don't spin for too long
+            time.sleep(0.1)
+            if time.time() - start > 5:
+                print "Failure"
+                self.fail("Error, timeout trying to read PID")
+                p.terminate()
+
+        # Stop the process
+        os.kill(p.pid, signal.SIGTERM)
+
+        p.join()
+
+        # Check the pid is correct
+        self.assertEquals(p.pid, pid)
 
 
 logger = logging.getLogger("tendo.singleton")
