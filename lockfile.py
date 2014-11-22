@@ -4,9 +4,10 @@
 # Python Software Foundation License Version 2
 # See: PSF-LICENSE.txt for the full license.
 
-import sys
-import os
 import errno
+import os
+import sys
+import unittest
 
 
 class Lock(object):
@@ -50,6 +51,12 @@ class Lock(object):
         self.initialized = False
         self.fobj = None
 
+    def __enter__(self):
+        return self.acquire()
+
+    def __exit__(self, type, value, traceback):
+        self.release()
+
     def __del__(self):
         if not self.initialized:
             return
@@ -88,3 +95,22 @@ class Lock(object):
                 return None
 
         return fobj
+
+
+class TestLock(unittest.TestCase):
+
+    def test_context(self):
+        """
+        Make sure the context manager interface works
+        """
+        path = '/tmp/my-lock-%d' % os.getpid()
+
+        with Lock(path):
+            pass
+
+        lock = Lock(path)
+        with lock:
+            pass
+
+if __name__ == "__main__":
+    unittest.main()
