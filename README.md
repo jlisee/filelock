@@ -7,6 +7,9 @@ tendo.singleton code found here:
 
     https://github.com/pycontribs/tendo
 
+And the py-lockfile code from here:
+
+    https://github.com/benediktschmitt/py-filelock
 
 lockfile
 ---------

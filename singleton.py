@@ -32,19 +32,24 @@ class SingleInstance(object):
     def __init__(self, flavor_id=""):
         self.lockfile = self.lockfile_path(flavor_id)
         self.lock = lockfile.FileLock(self.lockfile)
-        self.fobj = None
+        self.fd = None
 
         logger.debug("SingleInstance lockfile: " + self.lockfile)
 
-        self.fobj = self.lock.acquire(trylock=True)
+        try:
+            self.lock.acquire(timeout=0)
+        except lockfile.Timeout:
+            pass
 
-        if self.fobj is None:
+        if self.lock.is_locked():
+            self.fd = self.lock._lock_file_fd
+
+        if self.fd is None:
             logger.error("Another instance is already running, quitting.")
             sys.exit(-1)
         else:
             # Make sure our pid is in the file
-            self.fobj.write('%d\n' % os.getpid())
-            self.fobj.flush()
+            os.write(self.fd, '%d\n' % os.getpid())
 
         self.initialized = True
 
