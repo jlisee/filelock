@@ -26,11 +26,13 @@ class SingleInstance(object):
     amounts of time.
 
     Remember that this works by creating a lock file with a filename based on
-    the full path to the script file.
+    the full path to the script file. You can override this with the provided
+    program_path option.
     """
 
-    def __init__(self, flavor_id=""):
-        self.lockfile = self.lockfile_path(flavor_id)
+    def __init__(self, flavor_id=None, program_path=None, pid=None):
+        self.lockfile = self.lockfile_path(flavor_id, program_path)
+        self.pidpath = None
         self.lock = lockfile.FileLock(self.lockfile)
         self.fd = None
 
@@ -48,17 +50,25 @@ class SingleInstance(object):
             logger.error("Another instance is already running, quitting.")
             sys.exit(-1)
         else:
-            # Make sure our pid is in the file
-            os.write(self.fd, '%d\n' % os.getpid())
+            # Write out the pid file
+            if pid is None:
+                pid = os.getpid()
+
+            self.pidpath = self.pidfile_path(flavor_id, program_path)
+            with open(self.pidpath, 'w+') as pidfile:
+                pidfile.write('%d\n' % pid)
 
         self.initialized = True
 
     @staticmethod
-    def lockfile_path(flavor_id="", program_path=None):
+    def lockfile_path(flavor_id=None, program_path=None):
         """
         Generates a lock file path based on the location of the executable,
         and flavor_id.
         """
+
+        if flavor_id is None:
+            flavor_id = ""
 
         if program_path is None:
             program_path = sys.argv[0]
@@ -71,20 +81,33 @@ class SingleInstance(object):
 
         return os.path.normpath(tempfile.gettempdir() + '/' + basename)
 
+
+    @staticmethod
+    def pidfile_path(flavor_id=None, program_path=None):
+        """
+        Get the path to the pid file.
+        """
+
+        lockpath = SingleInstance.lockfile_path(flavor_id, program_path)
+        basename, _ = os.path.splitext(lockpath)
+        return basename + ".pid"
+
+
     @staticmethod
     def get_pid(program_path, flavor_id=""):
         """
         Gets the pid of the given program if it's running, None otherwise.
         """
 
-        lockpath = SingleInstance.lockfile_path(flavor_id=flavor_id,
-                                                program_path=program_path)
+        lockpath = SingleInstance.pidfile_path(flavor_id=flavor_id,
+                                               program_path=program_path)
 
         pid = None
 
         if os.path.exists(lockpath):
             c = open(lockpath).read()
-            if c.endswith('\n'):
+
+            if c and len(c) and c.endswith('\n'):
                 pid = int(c)
 
         return pid
@@ -92,6 +115,18 @@ class SingleInstance(object):
 
     def __del__(self):
         try:
+            # Clean up the pid file
+            if os.path.exists(self.pidpath):
+                os.remove(self.pidpath)
+        except Exception as e:
+            if logger:
+                logger.warning(e)
+            else:
+                print("Unloggable error: %s" % e)
+
+        # Release our lock
+        try:
+
             self.lock.release()
         except Exception as e:
             if logger:

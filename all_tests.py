@@ -127,17 +127,13 @@ class TestSingleton(unittest.TestCase):
 
         self.assertEquals(0, p.exitcode)
 
-    def test_get_pid(self):
-        # Start up the process
-        p = Process(target=f, args=("test-pid",loop_until_signal))
-        p.start()
-
+    def _get_pid(self, program_path, flavor_id):
         # Try and find our PID
         start = time.time()
 
         while True:
             # Try and read the PID
-            pid = SingleInstance.get_pid(sys.argv[0], 'test-pid')
+            pid = SingleInstance.get_pid(program_path, flavor_id)
 
             if pid:
                 break
@@ -149,6 +145,18 @@ class TestSingleton(unittest.TestCase):
                 self.fail("Error, timeout trying to read PID")
                 p.terminate()
 
+        return pid
+
+    def test_get_pid(self):
+        # Start up the process
+        p = Process(target=f, args=("test-pid",loop_until_signal))
+        p.start()
+
+        pid = self._get_pid(sys.argv[0], 'test-pid')
+
+        pid_path = SingleInstance.pidfile_path('test-pid')
+        self.assertTrue(os.path.exists(pid_path))
+
         # Stop the process
         os.kill(p.pid, signal.SIGTERM)
 
@@ -156,6 +164,29 @@ class TestSingleton(unittest.TestCase):
 
         # Check the pid is correct
         self.assertEquals(p.pid, pid)
+
+        # Make sure the file is cleaned up
+        self.assertFalse(os.path.exists(pid_path))
+
+
+    def test_get_pid_2(self):
+        """Make sure another run attempt doesn't kill our pid file"""
+        p = Process(target=f, args=("test-pid",loop_until_signal))
+        p.start()
+
+        pid = self._get_pid(sys.argv[0], 'test-pid')
+        self.assertEquals(p.pid, pid)
+
+        # Now try starting it again
+        p2 = Process(target=f, args=("test-pid",loop_until_signal))
+        p2.start()
+        p2.join()
+
+        pid = self._get_pid(sys.argv[0], 'test-pid')
+        self.assertEquals(p.pid, pid)
+
+        # Stop the process
+        os.kill(p.pid, signal.SIGTERM)
 
 
 class TestLock(unittest.TestCase):
