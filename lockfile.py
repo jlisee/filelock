@@ -1,5 +1,3 @@
-#! /usr/bin/env python
-
 # Software License:
 # Python Software Foundation License Version 2
 # See: PSF-LICENSE.txt for the full license.
@@ -7,7 +5,6 @@
 import errno
 import os
 import sys
-import unittest
 
 
 class FileLock(object):
@@ -95,22 +92,3 @@ class FileLock(object):
                 return None
 
         return fobj
-
-
-class TestLock(unittest.TestCase):
-
-    def test_context(self):
-        """
-        Make sure the context manager interface works
-        """
-        path = '/tmp/my-lock-%d' % os.getpid()
-
-        with FileLock(path):
-            pass
-
-        lock = FileLock(path)
-        with lock:
-            pass
-
-if __name__ == "__main__":
-    unittest.main()
