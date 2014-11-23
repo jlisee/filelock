@@ -25,8 +25,8 @@ class SingleInstance(object):
     exit the application with the message "Another instance is already running,
     quitting.", returning -1 error code.
 
-    >>> import tendo
-    ... me = SingleInstance()
+    >>> import singleton
+    ... me = singleton.SingleInstance()
 
     This option is very useful if you have scripts executed by crontab at small
     amounts of time.
@@ -37,7 +37,7 @@ class SingleInstance(object):
 
     def __init__(self, flavor_id=""):
         self.lockfile = self.lockfile_path(flavor_id)
-        self.lock = lockfile.Lock(self.lockfile)
+        self.lock = lockfile.FileLock(self.lockfile)
         self.fobj = None
 
         logger.debug("SingleInstance lockfile: " + self.lockfile)

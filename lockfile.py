@@ -10,7 +10,7 @@ import sys
 import unittest
 
 
-class Lock(object):
+class FileLock(object):
     """
     A cross platform system wide file based lock object.
     """
@@ -105,10 +105,10 @@ class TestLock(unittest.TestCase):
         """
         path = '/tmp/my-lock-%d' % os.getpid()
 
-        with Lock(path):
+        with FileLock(path):
             pass
 
-        lock = Lock(path)
+        lock = FileLock(path)
         with lock:
             pass
 
